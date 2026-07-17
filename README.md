@@ -1,7 +1,7 @@
 BabyNoxa is a token-launch lifecycle system with three major phases:
 
 1. A creator submits verified project metadata.
-2. Users trade against a bonding curve until its reserve target is reached.
+2. Users trade against a bonding curve until its 800-million-token inventory is sold.
 3. The project graduates into a V2-style liquidity pool and its LP position is permanently burned.
 
 The explanation below describes the educational/local design. Real-value deployment would require professional auditing and adult-led legal review.
@@ -15,12 +15,12 @@ flowchart TD
     C --> D["Factory creates token and curve"]
     D --> E["Creator optional initial purchase ≤ 2%"]
     E --> F["Bonding-curve trading"]
-    F --> G{"Reserve threshold reached?"}
+    F --> G{"Curve inventory sold?"}
     G -- "No" --> F
-    G -- "Yes" --> H["Trading stops"]
-    H --> I["GraduationManagerV1 executes"]
-    I --> J["10% treasury allocation"]
-    J --> K["Remaining reserve enters V2-style pool"]
+    G -- "Yes" --> H["Trading stops and graduation executes atomically"]
+    H --> I["GraduationManagerV1 allocates 10% to treasury"]
+    I --> J["Price-matched token amount calculated"]
+    J --> K["Remaining reserve and matched tokens enter V2-style pool"]
     K --> L["100% of received LP burned"]
     L --> M["Normal AMM trading; no BabyNoxa fee"]
 ```
@@ -52,15 +52,12 @@ Receives:
 
 - 50% of the 1% curve-trading fee.
 - The 10% graduation allocation.
-- Minus the capped keeper reimbursement.
 
 It receives no LP under Graduation Manager V1.
 
 ## Keeper
 
-Watches for curves that reach `GraduationReady` and calls graduation.
-
-Anybody should be able to call the graduation function. BabyNoxa’s keeper merely makes the process automatic from the user’s perspective.
+Graduation is atomic under Graduation Manager V1, so no separate keeper call or keeper reimbursement is required.
 
 # 2. Main components
 
@@ -367,23 +364,25 @@ Trades should not send fees directly to their recipients because a failing recip
 
 # 9. Graduation threshold
 
-Graduation depends on the curve’s current real reserve—not historical volume.
+Graduation occurs when the curve's real 800-million-token inventory is exhausted. Tokens returned by sells replenish that inventory, so historical gross sales cannot trigger graduation by themselves.
 
-For example:
-
-```text
-Buys add to reserve
-Sells reduce reserve
-Trading fees do not enter reserve
-```
-
-A project graduates only when:
+The confirmed V1 virtual reserves are:
 
 ```text
-real reserve ≥ configured graduation threshold
+Initial virtual base reserve:    1.425 ETH
+Initial virtual token reserve:   1,066,666,667 tokens
+Real curve token inventory:        800,000,000 tokens
+Terminal virtual token reserve:    266,666,667 tokens, approximately
 ```
 
-The mainnet threshold remains undecided. For local Anvil lessons, a small threshold can be used entirely as fake development value.
+Exhausting the real curve inventory implies:
+
+```text
+Terminal virtual base reserve: approximately 5.70 ETH
+Net real base reserve:          approximately 4.275 ETH
+```
+
+The real base value is a derived result, not an independent graduation condition. Buys increase it, sells decrease it and curve-trading fees never enter it.
 
 # 10. Threshold-crossing purchase
 
@@ -395,30 +394,17 @@ The curve should:
 2. Execute that portion.
 3. Charge fees only on the executed portion.
 4. Record or return the excess.
-5. Set state to `GraduationReady`.
-6. Reject further curve trading.
+5. Exhaust the remaining curve inventory.
+6. Enter `GraduationReady` and execute V1 graduation atomically.
+7. Finish in `Graduated`, permanently closing curve trading.
 
 This prevents the final buyer from overpaying.
 
 # 11. Automatic graduation
 
-Graduation uses two logical transactions:
+Graduation uses one atomic transaction. The final buy exhausts the curve inventory, temporarily enters `GraduationReady`, executes Graduation Manager V1 and finishes in `Graduated`.
 
-## Transaction one: final buy
-
-The final buy:
-
-- Reaches the reserve threshold.
-- Stops curve trading.
-- Changes the state to `GraduationReady`.
-
-## Transaction two: graduation
-
-A BabyNoxa keeper quickly calls graduation.
-
-The function is permissionless, so another address can call it if the official keeper does not.
-
-This gives an automatic user experience without making the final buyer execute the expensive pool-creation logic.
+If liquidity creation or LP burning fails, the entire final purchase reverts. No partial graduation state is retained, and the buyer can retry. Because there is no separate keeper transaction, V1 keeper reimbursement is zero.
 
 # 12. GraduationManagerV1
 
@@ -437,26 +423,16 @@ Existing projects cannot be moved to a different manager.
 
 ## V1 graduation calculation
 
-Suppose the real reserve reaches `10 ETH`.
+At the expected terminal reserve:
 
 ```text
-Graduation reserve:       10 ETH
-Graduation allocation:     1 ETH
-Liquidity reserve:         9 ETH
+Graduation reserve:       approximately 4.2750 ETH
+Graduation allocation:    approximately 0.4275 ETH (10%)
+Liquidity reserve:        approximately 3.8475 ETH (90%)
 ```
 
 The 10% allocation goes to the BabyNoxa treasury.
-
-The keeper’s capped reimbursement is taken from that 1 ETH treasury portion:
-
-```text
-Treasury receives
-=
-graduation allocation
-− keeper reimbursement
-```
-
-The liquidity reserve must never pay the keeper.
+Keeper reimbursement is zero under atomic V1 graduation.
 
 # 13. Price continuity
 
@@ -485,6 +461,8 @@ Without this calibration, there could be an immediate price gap between the curv
 
 Any token allocation not required for liquidity should be permanently burned rather than given to the creator or treasury.
 
+BabyNoxa reserves 200 million real tokens for graduation. With approximately 3.8475 ETH entering liquidity, price continuity requires approximately 180 million tokens. The exact amount is calculated from terminal reserves using integer-safe rounding; the unused remainder, approximately 20 million tokens, is permanently burned.
+
 # 14. LP policy
 
 Graduation Manager V1 uses:
@@ -493,6 +471,15 @@ Graduation Manager V1 uses:
 Burned LP:   100%
 Treasury LP: 0%
 Creator LP:  0%
+```
+
+The token burn and LP-token burn are distinct:
+
+```text
+Graduation token reserve:  200,000,000 tokens
+Tokens paired:             approximately 180,000,000
+Unused tokens burned:      approximately 20,000,000
+LP tokens burned:          100% of LP tokens received
 ```
 
 All received LP is sent to the conventional dead address:
@@ -602,27 +589,46 @@ Your Foundry invariant tests should eventually prove:
 5. Constant product never decreases unexpectedly.
 6. Fees never count as graduation reserves.
 7. User cannot sell more than their balance.
-8. Curve trading stops at graduation readiness.
+8. Curve trading stops when its real token inventory is exhausted.
 9. Graduation can execute only once.
-10. Keeper reimbursement never exceeds its cap.
-11. Keeper reimbursement comes only from the treasury allocation.
+10. Atomic V1 graduation pays no keeper reimbursement.
+11. Failure during atomic graduation reverts the entire final purchase.
 12. Graduation Manager V1 gives treasury zero LP.
 13. Graduation Manager V1 burns all received LP.
 14. Existing launches cannot change manager versions.
 15. Metadata hashes cannot be silently replaced.
+16. The initial AMM price matches the terminal curve price within the approved rounding tolerance.
+17. Graduation tokens not required for price-matched liquidity are burned.
 
 # 20. Decisions still pending
 
-These parameters must be simulated before being finalized:
+## Confirmed V1 economic parameters
 
-- Graduation hard cap
-- Initial virtual base reserve
-- Initial virtual token reserve
-- Exact curve token allocation
-- Exact liquidity token allocation
-- Maximum keeper reimbursement per network
+```text
+Total supply:                 1,000,000,000 tokens
+Minting after creation:       disabled
+Token taxes:                  none
+Real curve allocation:        800,000,000 tokens
+Initial virtual base:         1.425 ETH
+Initial virtual tokens:       1,066,666,667 tokens
+Graduation trigger:           curve inventory exhausted
+Expected net base reserve:    approximately 4.275 ETH
+Graduation token reserve:     200,000,000 tokens
+Tokens paired:                price-matched amount, approximately 180,000,000
+Unused graduation tokens:     permanently burned
+Graduation allocation:        10% of curve reserve
+Keeper reimbursement:         zero under atomic V1 graduation
+V1 LP-token policy:           100% burned
+Post-graduation fee:           none
+```
+
+The following implementation details still require simulation or policy decisions:
+
+- Exact integer-rounding tolerance for curve-to-AMM price continuity
+- Minimum trade size and dust policy
+- Maximum transaction size or price-impact policy, if any
 - Image size and storage provider
 - Social-link update rules
 - Moderation and reporting policy
 
-Those parameters affect starting price, terminal valuation, tokens sold and graduation-price continuity. They should be chosen from curve simulations rather than guessed.
+The economic simulator must verify the confirmed parameters under normal, boundary and adversarial trade sequences before they are embedded in a stateful curve.

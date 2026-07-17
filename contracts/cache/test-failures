@@ -1,1 +1,1 @@
-test_RevertWhenAReserveIsZero|test_RevertWhenAmountIsZero
+test_ConfirmedV1Geometry|test_RevertWhenInventoryIsNotBelowVirtualReserve|test_RevertWhenSellExceedsRealReserve
