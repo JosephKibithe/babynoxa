@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Test, console2} from "forge-std/Test.sol";
-import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {BabyNoxaConstants} from "../../src/libraries/BabyNoxaConstants.sol";
 import {CurveMath} from "../../src/libraries/CurveMath.sol";
 

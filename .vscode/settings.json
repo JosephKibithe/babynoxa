@@ -1,0 +1,26 @@
+{
+  "files.exclude": {
+    "contracts/lib/openzeppelin-contracts/.github": true,
+    "contracts/lib/openzeppelin-contracts/certora": true,
+    "contracts/lib/openzeppelin-contracts/lib": true,
+    "contracts/lib/openzeppelin-contracts/test": true
+  },
+  "search.exclude": {
+    "contracts/lib/openzeppelin-contracts/.github": true,
+    "contracts/lib/openzeppelin-contracts/certora": true,
+    "contracts/lib/openzeppelin-contracts/lib": true,
+    "contracts/lib/openzeppelin-contracts/test": true
+  },
+  "files.watcherExclude": {
+    "**/contracts/lib/openzeppelin-contracts/.github/**": true,
+    "**/contracts/lib/openzeppelin-contracts/certora/**": true,
+    "**/contracts/lib/openzeppelin-contracts/lib/**": true,
+    "**/contracts/lib/openzeppelin-contracts/test/**": true
+  },
+  "files.associations": {
+    "contracts/lib/openzeppelin-contracts/.github/workflows/*.yml": "plaintext",
+    "contracts/lib/openzeppelin-contracts/.github/workflows/*.yaml": "plaintext",
+    "contracts/lib/openzeppelin-contracts/certora/**/*.sol": "plaintext",
+    "contracts/lib/openzeppelin-contracts/test/**/*.sol": "plaintext"
+  }
+}
