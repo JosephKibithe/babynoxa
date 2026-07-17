@@ -2,15 +2,16 @@
 pragma solidity ^0.8.24;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {BabyNoxaConstants} from "../libraries/BabyNoxaConstants.sol";
 import {CurveMath} from "../libraries/CurveMath.sol";
 import {FeeMath} from "../libraries/FeeMath.sol";
 import {LaunchState} from "../types/BabyNoxaTypes.sol";
 
 /// @title BondingCurveSimulator
-/// @notice Deterministic, non-payable reference state machine for the BabyNoxa V1 curve.
-/// @dev Uses internal accounting only. It never receives or transfers ETH or ERC-20 tokens.
-contract BondingCurveSimulator {
+/// @notice Payable reference state machine for the BabyNoxa V1 curve.
+/// @dev Custodies and transfers ETH, while token and LP balances remain simulated until token/AMM integration.
+contract BondingCurveSimulator is ReentrancyGuard {
     address public immutable creator;
     address public immutable treasury;
 
@@ -33,21 +34,23 @@ contract BondingCurveSimulator {
     uint256 public mockTreasuryLp;
 
     uint256 public totalUserTokenBalances;
-    uint256 public totalMockBaseCredits;
+    uint256 public totalClaimableBase;
     uint256 public totalGrossBaseSubmitted;
     uint256 public totalGrossBaseExecuted;
     uint256 public totalGrossBaseRefunded;
+    uint256 public totalOutstandingRefunds;
 
     bool public tradingStarted;
     bool public creatorInitialBuyExecuted;
 
     mapping(address user => uint256 balance) public tokenBalanceOf;
-    mapping(address user => uint256 credit) public mockBaseCreditOf;
-    mapping(address user => uint256 refund) public mockRefundOf;
+    mapping(address user => uint256 credit) public claimableBaseOf;
+    mapping(address user => uint256 refund) public claimableRefundOf;
 
     error ZeroAddress();
     error InvalidState(LaunchState current, LaunchState required);
     error CreatorOnly(address caller);
+    error TreasuryOnly(address caller);
     error InitialBuyClosed();
     error CreatorInitialBuyCapExceeded(uint256 tokensOut, uint256 cap);
     error InsufficientTokenBalance(uint256 available, uint256 required);
@@ -55,6 +58,8 @@ contract BondingCurveSimulator {
     error BaseSlippageExceeded(uint256 minimum, uint256 actual);
     error GraduationTokenReserveExceeded(uint256 available, uint256 required);
     error AccountingInvariantFailed();
+    error NoClaimableAmount(address account);
+    error EtherTransferFailed(address recipient, uint256 amount);
 
     event TokensPurchased(
         address indexed buyer,
@@ -72,7 +77,7 @@ contract BondingCurveSimulator {
         uint256 creatorFee,
         uint256 treasuryFee
     );
-    event MockRefundRecorded(address indexed buyer, uint256 grossBaseRefund);
+    event RefundRecorded(address indexed buyer, uint256 grossBaseRefund);
     event GraduationExecuted(
         uint256 treasuryAllocation,
         uint256 liquidityBase,
@@ -80,6 +85,17 @@ contract BondingCurveSimulator {
         uint256 burnedTokens,
         uint256 burnedLp
     );
+    event EtherClaimed(address indexed account, uint256 amount, bytes32 indexed claimType);
+
+    modifier onlyCreator() {
+        if (msg.sender != creator) revert CreatorOnly(msg.sender);
+        _;
+    }
+
+    modifier onlyTreasury() {
+        if (msg.sender != treasury) revert TreasuryOnly(msg.sender);
+        _;
+    }
 
     constructor(address creator_, address treasury_) {
         if (creator_ == address(0) || treasury_ == address(0)) revert ZeroAddress();
@@ -94,19 +110,15 @@ contract BondingCurveSimulator {
     }
 
     /// @notice Executes the optional creator purchase before any public trade.
-    function creatorInitialBuy(uint256 grossBaseAvailable, uint256 minimumTokensOut)
-        external
-        returns (uint256 tokensOut)
-    {
-        if (msg.sender != creator) revert CreatorOnly(msg.sender);
+    function creatorInitialBuy(uint256 minimumTokensOut) external payable onlyCreator returns (uint256 tokensOut) {
         if (tradingStarted || creatorInitialBuyExecuted) revert InitialBuyClosed();
 
-        tokensOut = _buy(msg.sender, grossBaseAvailable, minimumTokensOut, true);
+        tokensOut = _buy(msg.sender, minimumTokensOut, true);
         creatorInitialBuyExecuted = true;
     }
 
-    function buy(uint256 grossBaseAvailable, uint256 minimumTokensOut) external returns (uint256 tokensOut) {
-        tokensOut = _buy(msg.sender, grossBaseAvailable, minimumTokensOut, false);
+    function buy(uint256 minimumTokensOut) external payable returns (uint256 tokensOut) {
+        tokensOut = _buy(msg.sender, minimumTokensOut, false);
     }
 
     function sell(uint256 tokenAmount, uint256 minimumBaseOut) external returns (uint256 netBaseCredit) {
@@ -129,8 +141,8 @@ contract BondingCurveSimulator {
         totalUserTokenBalances -= tokenAmount;
         creatorTradingFees += fee.creatorFee;
         treasuryTradingFees += fee.treasuryFee;
-        mockBaseCreditOf[msg.sender] += fee.netAmount;
-        totalMockBaseCredits += fee.netAmount;
+        claimableBaseOf[msg.sender] += fee.netAmount;
+        totalClaimableBase += fee.netAmount;
 
         emit TokensSold(msg.sender, tokenAmount, curve.grossBaseOut, fee.netAmount, fee.creatorFee, fee.treasuryFee);
 
@@ -141,7 +153,12 @@ contract BondingCurveSimulator {
     /// @notice Total executed buy input, partitioned across all current and terminal destinations.
     function accountedExecutedBase() public view returns (uint256) {
         return realBaseReserve + creatorTradingFees + treasuryTradingFees + graduationTreasuryAllocation + liquidityBase
-            + totalMockBaseCredits;
+            + totalClaimableBase;
+    }
+
+    /// @notice Current ETH liabilities and locked liquidity must equal the contract's ETH balance.
+    function accountedContractBalance() public view returns (uint256) {
+        return accountedExecutedBase() + totalOutstandingRefunds;
     }
 
     /// @notice All minted token units remain assigned to users, curve, graduation, pool, or burn buckets.
@@ -149,11 +166,52 @@ contract BondingCurveSimulator {
         return totalUserTokenBalances + curveTokenInventory + graduationTokenReserve + liquidityTokens + burnedTokens;
     }
 
-    function _buy(address buyer, uint256 grossBaseAvailable, uint256 minimumTokensOut, bool isCreatorInitialBuy)
+    function claimRefund() external nonReentrant returns (uint256 amount) {
+        amount = claimableRefundOf[msg.sender];
+        if (amount == 0) revert NoClaimableAmount(msg.sender);
+
+        claimableRefundOf[msg.sender] = 0;
+        totalOutstandingRefunds -= amount;
+        _sendEther(msg.sender, amount, keccak256("REFUND"));
+        _assertAccounting();
+    }
+
+    function claimBaseCredit() external nonReentrant returns (uint256 amount) {
+        amount = claimableBaseOf[msg.sender];
+        if (amount == 0) revert NoClaimableAmount(msg.sender);
+
+        claimableBaseOf[msg.sender] = 0;
+        totalClaimableBase -= amount;
+        _sendEther(msg.sender, amount, keccak256("SELL_PROCEEDS"));
+        _assertAccounting();
+    }
+
+    function claimCreatorFees() external onlyCreator nonReentrant returns (uint256 amount) {
+        amount = creatorTradingFees;
+        if (amount == 0) revert NoClaimableAmount(msg.sender);
+
+        creatorTradingFees = 0;
+        _sendEther(msg.sender, amount, keccak256("CREATOR_FEES"));
+        _assertAccounting();
+    }
+
+    function claimTreasuryFees() external onlyTreasury nonReentrant returns (uint256 amount) {
+        amount = treasuryTradingFees + graduationTreasuryAllocation;
+        if (amount == 0) revert NoClaimableAmount(msg.sender);
+
+        treasuryTradingFees = 0;
+        graduationTreasuryAllocation = 0;
+        _sendEther(msg.sender, amount, keccak256("TREASURY_FEES"));
+        _assertAccounting();
+    }
+
+    function _buy(address buyer, uint256 minimumTokensOut, bool isCreatorInitialBuy)
         private
         returns (uint256 tokensOut)
     {
         _requireTrading();
+
+        uint256 grossBaseAvailable = msg.value;
 
         FeeMath.TradeFeeQuote memory fullFee = FeeMath.quoteTrade(grossBaseAvailable);
         CurveMath.BuyQuote memory curve =
@@ -198,9 +256,10 @@ contract BondingCurveSimulator {
         totalGrossBaseExecuted += grossBaseUsed;
 
         if (grossBaseRefund != 0) {
-            mockRefundOf[buyer] += grossBaseRefund;
+            claimableRefundOf[buyer] += grossBaseRefund;
             totalGrossBaseRefunded += grossBaseRefund;
-            emit MockRefundRecorded(buyer, grossBaseRefund);
+            totalOutstandingRefunds += grossBaseRefund;
+            emit RefundRecorded(buyer, grossBaseRefund);
         }
 
         emit TokensPurchased(buyer, grossBaseUsed, curve.netBaseUsed, curve.tokensOut, creatorFee, treasuryFee);
@@ -240,8 +299,15 @@ contract BondingCurveSimulator {
         if (state != LaunchState.Trading) revert InvalidState(state, LaunchState.Trading);
     }
 
+    function _sendEther(address recipient, uint256 amount, bytes32 claimType) private {
+        (bool success,) = payable(recipient).call{value: amount}("");
+        if (!success) revert EtherTransferFailed(recipient, amount);
+        emit EtherClaimed(recipient, amount, claimType);
+    }
+
     function _assertAccounting() private view {
-        if (accountedExecutedBase() != totalGrossBaseExecuted) revert AccountingInvariantFailed();
+        // ETH can be forced into a contract. Solvency requires at least the accounted liabilities.
+        if (address(this).balance < accountedContractBalance()) revert AccountingInvariantFailed();
         if (totalGrossBaseSubmitted != totalGrossBaseExecuted + totalGrossBaseRefunded) {
             revert AccountingInvariantFailed();
         }
