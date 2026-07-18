@@ -1,0 +1,72 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.keystore
+keystore/
+wallets/
+
+# Foundry build, test, and deployment artifacts
+contracts/cache/
+contracts/out/
+contracts/broadcast/
+contracts/coverage/
+contracts/flattened/
+contracts/lcov.info
+
+# JavaScript and TypeScript dependencies/builds
+node_modules/
+.pnpm-store/
+.yarn/cache/
+.yarn/install-state.gz
+.npm/
+.turbo/
+.next/
+.nuxt/
+.svelte-kit/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Test and browser output
+playwright-report/
+test-results/
+blob-report/
+.nyc_output/
+
+# Runtime data and temporary uploads
+uploads/
+.storage/
+tmp/
+temp/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor and OS files
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Local tool caches
+.eslintcache
+.stylelintcache
+.parcel-cache/
+.vite/
+.cache/
+
+# Local implementation planning
+/IMPLEMENTATION_STATUS.md
+docs/V1_DECISION_RECORD.md
