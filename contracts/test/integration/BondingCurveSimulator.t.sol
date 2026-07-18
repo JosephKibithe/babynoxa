@@ -8,6 +8,14 @@ import {FeeMath} from "../../src/libraries/FeeMath.sol";
 import {BondingCurveSimulator} from "../../src/mocks/BondingCurveSimulator.sol";
 import {LaunchState} from "../../src/types/BabyNoxaTypes.sol";
 
+contract ForceEther {
+    constructor() payable {}
+
+    function force(address payable recipient) external {
+        selfdestruct(recipient);
+    }
+}
+
 contract BondingCurveSimulatorTest is Test {
     address internal creator = makeAddr("creator");
     address internal treasury = makeAddr("treasury");
@@ -21,16 +29,30 @@ contract BondingCurveSimulatorTest is Test {
         vm.deal(creator, 100 ether);
         vm.deal(alice, 100 ether);
         vm.deal(bob, 100 ether);
+
+        vm.prank(creator);
+        simulator.launch(0);
     }
 
-    function test_InitialStateAccountsForEntireSupply() public view {
+    function test_LaunchWithoutCreatorBuyOpensTradingAndAccountsForEntireSupply() public view {
         assertEq(uint256(simulator.state()), uint256(LaunchState.Trading));
+        assertFalse(simulator.creatorInitialBuyExecuted());
         assertEq(simulator.virtualBaseReserve(), BabyNoxaConstants.INITIAL_VIRTUAL_BASE_RESERVE);
         assertEq(simulator.virtualTokenReserve(), BabyNoxaConstants.INITIAL_VIRTUAL_TOKEN_RESERVE);
         assertEq(simulator.curveTokenInventory(), BabyNoxaConstants.CURVE_TOKEN_ALLOCATION);
         assertEq(simulator.graduationTokenReserve(), BabyNoxaConstants.GRADUATION_TOKEN_RESERVE);
         assertEq(simulator.accountedTokenSupply(), BabyNoxaConstants.TOTAL_SUPPLY);
         assertEq(simulator.accountedExecutedBase(), 0);
+    }
+
+    function test_OnlyCreatorCanOpenLaunch() public {
+        simulator = new BondingCurveSimulator(creator, treasury);
+
+        vm.expectPartialRevert(BondingCurveSimulator.CreatorOnly.selector);
+        vm.prank(alice);
+        simulator.launch(0);
+
+        assertEq(uint256(simulator.state()), uint256(LaunchState.Created));
     }
 
     function test_BuyUpdatesBalancesReservesAndSeparateFeeBuckets() public {
@@ -49,6 +71,39 @@ contract BondingCurveSimulatorTest is Test {
         assertEq(simulator.accountedTokenSupply(), BabyNoxaConstants.TOTAL_SUPPLY);
         assertEq(address(simulator).balance, 1 ether);
         assertEq(simulator.accountedContractBalance(), 1 ether);
+    }
+
+    function test_ForcedEtherCreatesOnlyUntrackedSurplusAndCannotWeakenLiabilityAccounting() public {
+        vm.prank(alice);
+        simulator.buy{value: 1 ether}(0);
+
+        FeeMath.TradeFeeQuote memory nextFee = FeeMath.quoteTrade(0.5 ether);
+        CurveMath.BuyQuote memory expectedNextBuy = CurveMath.quoteBuy(
+            simulator.virtualBaseReserve(),
+            simulator.virtualTokenReserve(),
+            simulator.curveTokenInventory(),
+            nextFee.netAmount
+        );
+
+        uint256 forcedSurplus = 0.25 ether;
+        ForceEther forceEther = new ForceEther{value: forcedSurplus}();
+        forceEther.force(payable(address(simulator)));
+        assertEq(address(simulator).balance - simulator.accountedContractBalance(), forcedSurplus);
+
+        vm.prank(bob);
+        uint256 bobTokens = simulator.buy{value: 0.5 ether}(0);
+        assertEq(bobTokens, expectedNextBuy.tokensOut);
+
+        vm.prank(creator);
+        simulator.claimCreatorFees();
+        assertEq(address(simulator).balance - simulator.accountedContractBalance(), forcedSurplus);
+
+        vm.prank(alice);
+        simulator.buy{value: 10 ether}(0);
+
+        assertEq(address(simulator).balance - simulator.accountedContractBalance(), forcedSurplus);
+        assertEq(uint256(simulator.state()), uint256(LaunchState.Graduated));
+        assertGe(address(simulator).balance, simulator.accountedContractBalance());
     }
 
     function test_SellRestoresInventoryAndRecordsClaimableBase() public {
@@ -168,6 +223,8 @@ contract BondingCurveSimulatorTest is Test {
     }
 
     function test_CreatorInitialBuyMustOccurFirstAndStayBelowCap() public {
+        simulator = new BondingCurveSimulator(creator, treasury);
+
         (uint256 netForNineteenMillion,,) = CurveMath.netBaseForExactTokensOut(
             BabyNoxaConstants.INITIAL_VIRTUAL_BASE_RESERVE,
             BabyNoxaConstants.INITIAL_VIRTUAL_TOKEN_RESERVE,
@@ -176,29 +233,45 @@ contract BondingCurveSimulatorTest is Test {
 
         uint256 grossInitialBuy = FeeMath.grossFromNet(netForNineteenMillion);
         vm.prank(creator);
-        uint256 tokensOut = simulator.creatorInitialBuy{value: grossInitialBuy}(0);
+        uint256 tokensOut = simulator.launch{value: grossInitialBuy}(0);
 
         assertLe(tokensOut, BabyNoxaConstants.CREATOR_INITIAL_BUY_CAP);
         assertTrue(simulator.creatorInitialBuyExecuted());
+        assertEq(uint256(simulator.state()), uint256(LaunchState.Trading));
+        assertEq(simulator.tokenBalanceOf(creator), tokensOut);
 
-        vm.expectRevert(BondingCurveSimulator.InitialBuyClosed.selector);
+        vm.expectPartialRevert(BondingCurveSimulator.InvalidState.selector);
         vm.prank(creator);
-        simulator.creatorInitialBuy{value: 1 ether}(0);
+        simulator.launch{value: 1 ether}(0);
     }
 
     function test_RevertWhenCreatorInitialBuyExceedsCap() public {
+        simulator = new BondingCurveSimulator(creator, treasury);
+
         vm.expectPartialRevert(BondingCurveSimulator.CreatorInitialBuyCapExceeded.selector);
         vm.prank(creator);
-        simulator.creatorInitialBuy{value: 1 ether}(0);
+        simulator.launch{value: 1 ether}(0);
+
+        assertEq(uint256(simulator.state()), uint256(LaunchState.Created));
     }
 
-    function test_PublicTradeClosesCreatorInitialBuyWindow() public {
+    function test_PublicTradeCannotFrontRunFundedCreatorLaunch() public {
+        simulator = new BondingCurveSimulator(creator, treasury);
+
+        vm.expectPartialRevert(BondingCurveSimulator.InvalidState.selector);
         vm.prank(alice);
         simulator.buy{value: 0.1 ether}(0);
 
-        vm.expectRevert(BondingCurveSimulator.InitialBuyClosed.selector);
         vm.prank(creator);
-        simulator.creatorInitialBuy{value: 0.01 ether}(0);
+        uint256 creatorTokens = simulator.launch{value: 0.01 ether}(0);
+
+        vm.prank(alice);
+        uint256 aliceTokens = simulator.buy{value: 0.1 ether}(0);
+
+        assertGt(creatorTokens, 0);
+        assertGt(aliceTokens, 0);
+        assertEq(simulator.tokenBalanceOf(creator), creatorTokens);
+        assertTrue(simulator.creatorInitialBuyExecuted());
     }
 
     function test_FinalBuyRefundsExcessAndGraduatesAtomically() public {

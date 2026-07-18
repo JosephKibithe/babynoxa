@@ -84,29 +84,27 @@ The creator submits:
 name
 symbol
 description
-image
+image or GIF URL
 website
 Twitter/X
 Telegram
 Discord, optional
 ```
 
-## Image validation
+## Image and GIF URL validation
 
-The backend should:
+V1 accepts a remote HTTPS image or GIF URL instead of uploading media bytes to BabyNoxa storage. The backend should:
 
-1. Check the real file type from its bytes.
-2. Accept PNG, JPEG or WebP.
-3. Fully decode the image.
-4. Reject corrupted images.
-5. Remove EXIF and location data.
-6. Resize oversized images.
-7. Convert the result to WebP.
-8. Enforce the processed size limit.
-9. Calculate the image hash.
-10. Store the image.
-11. Retrieve it again.
-12. Compare the retrieved hash.
+1. Require HTTPS, reject embedded credentials, and limit the URL to 2,048 characters.
+2. Block private, loopback, link-local and reserved network targets to prevent SSRF.
+3. Revalidate every redirect target, allow at most three redirects, and stream at most 5 MiB of encoded response data.
+4. Check the real file type from its bytes.
+5. Accept PNG, JPEG, WebP or GIF.
+6. Fully decode and reject corrupted files, declared/detected type mismatches, or decompression bombs.
+7. Limit decoded dimensions to 4,096 × 4,096 pixels; limit GIFs to 300 frames and 30 seconds total duration.
+8. Calculate the fetched content hash.
+9. Store the URL and observed hash in canonical metadata, but not the media bytes.
+10. Warn in the frontend if the URL later disappears or returns bytes that do not match the launch-time hash.
 
 ## Metadata validation
 
@@ -117,7 +115,7 @@ Name:         1–32 characters
 Symbol:       2–10 uppercase letters/numbers
 Description:  Maximum 500 characters
 Website:      HTTPS
-Image:        Required
+Media URL:    Required HTTPS URL
 Schema:       Versioned
 ```
 
@@ -129,7 +127,7 @@ After validation, the backend creates canonical JSON:
   "name": "Example",
   "symbol": "EXAMPLE",
   "description": "An educational launch.",
-  "image": "ipfs://image-cid",
+  "image": "https://cdn.example.com/token.webp",
   "website": "https://example.com",
   "twitter": "https://x.com/example",
   "telegram": "https://t.me/example"
@@ -152,7 +150,7 @@ These should not change after launch:
 
 - Name
 - Symbol
-- Image
+- Original media URL and launch-time content hash
 - Description
 - Creator
 - Original metadata hash
@@ -250,6 +248,8 @@ Every calculation must round in the direction that preserves solvency:
 x_{\text{new}} \times y_{\text{new}} \geq k
 ]
 
+V1 adds no administrator-selected maximum trade size. User-selected minimum output and deadline provide execution protection; curve inventory, owned token balance, and real base reserves provide hard solvency bounds. The creator's atomic launch purchase remains separately capped at 20 million tokens.
+
 # 6. Buy lifecycle
 
 A buy conceptually receives:
@@ -265,7 +265,7 @@ The intended processing order is:
 
 1. Confirm the project is in `Trading`.
 2. Confirm the input is greater than zero.
-3. Confirm the deadline has not expired.
+3. Confirm `block.timestamp <= deadline`; equality at the absolute Unix timestamp deadline is valid.
 4. Calculate the 1% fee.
 5. Divide the fee 50/50.
 6. Use the remaining 99% as curve input.
@@ -306,16 +306,17 @@ Processing order:
 
 1. Confirm state is `Trading`.
 2. Confirm the seller has enough tokens.
-3. Calculate gross curve output.
-4. Confirm the curve has sufficient real reserves.
-5. Calculate the 1% fee.
-6. Divide the fee 50/50.
-7. Verify net output meets the user’s minimum.
-8. Update reserves.
-9. Return tokens to curve inventory.
-10. Record or transfer output to the seller.
-11. Update fee accounting.
-12. Emit a sell event.
+3. Confirm `block.timestamp <= deadline`; equality at the absolute Unix timestamp deadline is valid.
+4. Calculate gross curve output.
+5. Confirm the curve has sufficient real reserves.
+6. Calculate the 1% fee.
+7. Divide the fee 50/50.
+8. Verify net output meets the user’s minimum.
+9. Update reserves.
+10. Return tokens to curve inventory.
+11. Record or transfer output to the seller.
+12. Update fee accounting.
+13. Emit a sell event.
 
 Example:
 
@@ -461,6 +462,8 @@ Without this calibration, there could be an immediate price gap between the curv
 
 Any token allocation not required for liquidity should be permanently burned rather than given to the creator or treasury.
 
+The approved continuity bounds are at most 1 wei of base per whole token absolute difference and at most 1 basis point relative difference, measured from the actual assets accepted by the pair. Both bounds must pass locally, on Amoy, and in the mainnet release tests.
+
 BabyNoxa reserves 200 million real tokens for graduation. With approximately 3.8475 ETH entering liquidity, price continuity requires approximately 180 million tokens. The exact amount is calculated from terminal reserves using integer-safe rounding; the unused remainder, approximately 20 million tokens, is permanently burned.
 
 # 14. LP policy
@@ -472,6 +475,8 @@ Burned LP:   100%
 Treasury LP: 0%
 Creator LP:  0%
 ```
+
+The official graduation pool uses a dedicated BabyNoxa V2-compatible factory and guarded-bootstrap pair. The pair is created during token launch and remains locked until its snapshotted Graduation Manager clears unsolicited balances, verifies empty reserves and LP supply, and performs the first mint directly to the burn address. After that one-way initialization, swaps and liquidity interaction become permissionless. A public QuickSwap pair may exist as a secondary market after graduation, but it is not the official first-liquidity venue.
 
 The token burn and LP-token burn are distinct:
 
@@ -536,7 +541,7 @@ Events are historical records. Contract state remains the source of truth for cu
 The backend manages:
 
 - Metadata
-- Images
+- Media URL validation and content-hash checks
 - Search
 - Comments
 - Moderation
@@ -600,7 +605,7 @@ Your Foundry invariant tests should eventually prove:
 16. The initial AMM price matches the terminal curve price within the approved rounding tolerance.
 17. Graduation tokens not required for price-matched liquidity are burned.
 
-# 20. Decisions still pending
+# 20. Confirmed V1 decisions and deployment gates
 
 ## Confirmed V1 economic parameters
 
@@ -620,15 +625,27 @@ Graduation allocation:        10% of curve reserve
 Keeper reimbursement:         zero under atomic V1 graduation
 V1 LP-token policy:           100% burned
 Post-graduation fee:           none
+Minimum executed trade value:  200 wei gross base
+Deadline:                       absolute Unix timestamp; equality is valid
+Maximum trade size:             no additional protocol cap; slippage protection required
+Price-continuity tolerance:     <= 1 wei/token absolute and <= 1 basis point relative
+Development network:           local Foundry/Anvil
+First public testnet:           Polygon Amoy, chain ID 80002
+Production target:              Polygon PoS mainnet, chain ID 137, after local and Amoy gates
+V1 AMM model:                   Uniswap V2-compatible
+Official graduation AMM:        dedicated guarded-bootstrap BabyNoxa V2 deployment
+Polygon Amoy router:            unset; deploy and verify a pinned V2-compatible stack
+Local V2 test stack:            pinned factory, Router02, and test wrapped-native deployment
+Fee custody:                    per-curve pull claims with claimTo
+Forced ETH recovery:           no sweep in V1
+Project media:                 validated external HTTPS image/GIF URL
+Media limits:                  2,048-char URL, 5 MiB, 4,096px, 300 GIF frames, 30 seconds
+Social links:                  creator-editable off-chain records
+Moderation:                    off-chain visibility only; no token or fund control
 ```
 
-The following implementation details still require simulation or policy decisions:
+The Solidity `ether` denomination used by the current simulator means `10^18` native-base units. On Polygon Amoy the same numeric geometry uses test POL, not ETH. Before deployment on any production EVM chain, that chain's native-base virtual reserve and graduation economics require separate approval; native assets are not assumed to have equal economic value.
 
-- Exact integer-rounding tolerance for curve-to-AMM price continuity
-- Minimum trade size and dust policy
-- Maximum transaction size or price-impact policy, if any
-- Image size and storage provider
-- Social-link update rules
-- Moderation and reporting policy
+QuickSwap's V2 router at `0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff` is a Polygon PoS **mainnet** (chain `137`) deployment. It has no bytecode at that address on Polygon Amoy (chain `80002`) and must not be used in the Amoy configuration.
 
-The economic simulator must verify the confirmed parameters under normal, boundary and adversarial trade sequences before they are embedded in a stateful curve.
+Remaining gates are implementation and release work: build the guarded pair/factory locally, harden the stateful simulator, deploy and verify on Amoy, approve Polygon mainnet's numeric POL reserve after Amoy results, complete independent security review, and only then deploy mainnet.

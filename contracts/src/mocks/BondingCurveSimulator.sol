@@ -51,7 +51,6 @@ contract BondingCurveSimulator is ReentrancyGuard {
     error InvalidState(LaunchState current, LaunchState required);
     error CreatorOnly(address caller);
     error TreasuryOnly(address caller);
-    error InitialBuyClosed();
     error CreatorInitialBuyCapExceeded(uint256 tokensOut, uint256 cap);
     error InsufficientTokenBalance(uint256 available, uint256 required);
     error TokenSlippageExceeded(uint256 minimum, uint256 actual);
@@ -78,6 +77,7 @@ contract BondingCurveSimulator is ReentrancyGuard {
         uint256 treasuryFee
     );
     event RefundRecorded(address indexed buyer, uint256 grossBaseRefund);
+    event LaunchOpened(bool creatorPurchased, uint256 grossBaseSubmitted, uint256 creatorTokensOut);
     event GraduationExecuted(
         uint256 treasuryAllocation,
         uint256 liquidityBase,
@@ -102,19 +102,38 @@ contract BondingCurveSimulator is ReentrancyGuard {
 
         creator = creator_;
         treasury = treasury_;
-        state = LaunchState.Trading;
+        state = LaunchState.Created;
         virtualBaseReserve = BabyNoxaConstants.INITIAL_VIRTUAL_BASE_RESERVE;
         virtualTokenReserve = BabyNoxaConstants.INITIAL_VIRTUAL_TOKEN_RESERVE;
         curveTokenInventory = BabyNoxaConstants.CURVE_TOKEN_ALLOCATION;
         graduationTokenReserve = BabyNoxaConstants.GRADUATION_TOKEN_RESERVE;
     }
 
-    /// @notice Executes the optional creator purchase before any public trade.
-    function creatorInitialBuy(uint256 minimumTokensOut) external payable onlyCreator returns (uint256 tokensOut) {
-        if (tradingStarted || creatorInitialBuyExecuted) revert InitialBuyClosed();
+    /// @notice Atomically opens public trading with an optional creator purchase.
+    /// @dev A zero-value launch skips the creator purchase. A funded launch executes the capped
+    ///      creator purchase before this transaction completes, so no public buyer can front-run it.
+    function launch(uint256 minimumCreatorTokensOut)
+        external
+        payable
+        onlyCreator
+        nonReentrant
+        returns (uint256 creatorTokensOut)
+    {
+        if (state != LaunchState.Created) revert InvalidState(state, LaunchState.Created);
+        if (msg.value == 0 && minimumCreatorTokensOut != 0) {
+            revert TokenSlippageExceeded(minimumCreatorTokensOut, 0);
+        }
 
-        tokensOut = _buy(msg.sender, minimumTokensOut, true);
-        creatorInitialBuyExecuted = true;
+        state = LaunchState.Trading;
+
+        if (msg.value != 0) {
+            creatorTokensOut = _buy(msg.sender, minimumCreatorTokensOut, true);
+            creatorInitialBuyExecuted = true;
+        } else {
+            _assertAccounting();
+        }
+
+        emit LaunchOpened(msg.value != 0, msg.value, creatorTokensOut);
     }
 
     function buy(uint256 minimumTokensOut) external payable returns (uint256 tokensOut) {
