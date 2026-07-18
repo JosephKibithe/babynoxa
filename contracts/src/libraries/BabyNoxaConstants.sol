@@ -19,4 +19,6 @@ library BabyNoxaConstants {
     uint16 internal constant TRADE_FEE_BPS = 100;
     uint16 internal constant GRADUATION_FEE_BPS = 1_000;
     uint16 internal constant LIQUIDITY_SHARE_BPS = 9_000;
+    uint16 internal constant MAX_PRICE_DIFFERENCE_BPS = 1;
+    uint256 internal constant MAX_PRICE_DIFFERENCE_WEI_PER_TOKEN = 1;
 }

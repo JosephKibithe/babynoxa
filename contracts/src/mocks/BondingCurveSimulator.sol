@@ -5,6 +5,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {BabyNoxaConstants} from "../libraries/BabyNoxaConstants.sol";
 import {CurveMath} from "../libraries/CurveMath.sol";
+import {DeadlinePolicy} from "../libraries/DeadlinePolicy.sol";
 import {FeeMath} from "../libraries/FeeMath.sol";
 import {LaunchState} from "../types/BabyNoxaTypes.sol";
 
@@ -56,6 +57,8 @@ contract BondingCurveSimulator is ReentrancyGuard {
     error TokenSlippageExceeded(uint256 minimum, uint256 actual);
     error BaseSlippageExceeded(uint256 minimum, uint256 actual);
     error GraduationTokenReserveExceeded(uint256 available, uint256 required);
+    error TradeValueBelowMinimum(uint256 actual, uint256 minimum);
+    error UnfillableCurveRemainder(uint256 remainingTokens, uint256 requiredGrossBase);
     error AccountingInvariantFailed();
     error NoClaimableAmount(address account);
     error EtherTransferFailed(address recipient, uint256 amount);
@@ -77,6 +80,8 @@ contract BondingCurveSimulator is ReentrancyGuard {
         uint256 treasuryFee
     );
     event RefundRecorded(address indexed buyer, uint256 grossBaseRefund);
+    event CreatorFeeAccrued(address indexed beneficiary, address indexed trader, uint256 amount, bool isBuy);
+    event TreasuryFeeAccrued(address indexed beneficiary, address indexed trader, uint256 amount, bool isBuy);
     event LaunchOpened(bool creatorPurchased, uint256 grossBaseSubmitted, uint256 creatorTokensOut);
     event GraduationExecuted(
         uint256 treasuryAllocation,
@@ -85,7 +90,7 @@ contract BondingCurveSimulator is ReentrancyGuard {
         uint256 burnedTokens,
         uint256 burnedLp
     );
-    event EtherClaimed(address indexed account, uint256 amount, bytes32 indexed claimType);
+    event EtherClaimed(address indexed account, address indexed recipient, uint256 amount, bytes32 indexed claimType);
 
     modifier onlyCreator() {
         if (msg.sender != creator) revert CreatorOnly(msg.sender);
@@ -112,7 +117,7 @@ contract BondingCurveSimulator is ReentrancyGuard {
     /// @notice Atomically opens public trading with an optional creator purchase.
     /// @dev A zero-value launch skips the creator purchase. A funded launch executes the capped
     ///      creator purchase before this transaction completes, so no public buyer can front-run it.
-    function launch(uint256 minimumCreatorTokensOut)
+    function launch(uint256 minimumCreatorTokensOut, uint256 deadline)
         external
         payable
         onlyCreator
@@ -120,6 +125,7 @@ contract BondingCurveSimulator is ReentrancyGuard {
         returns (uint256 creatorTokensOut)
     {
         if (state != LaunchState.Created) revert InvalidState(state, LaunchState.Created);
+        DeadlinePolicy.enforce(deadline);
         if (msg.value == 0 && minimumCreatorTokensOut != 0) {
             revert TokenSlippageExceeded(minimumCreatorTokensOut, 0);
         }
@@ -127,7 +133,7 @@ contract BondingCurveSimulator is ReentrancyGuard {
         state = LaunchState.Trading;
 
         if (msg.value != 0) {
-            creatorTokensOut = _buy(msg.sender, minimumCreatorTokensOut, true);
+            creatorTokensOut = _buy(msg.sender, minimumCreatorTokensOut, true, deadline);
             creatorInitialBuyExecuted = true;
         } else {
             _assertAccounting();
@@ -136,18 +142,24 @@ contract BondingCurveSimulator is ReentrancyGuard {
         emit LaunchOpened(msg.value != 0, msg.value, creatorTokensOut);
     }
 
-    function buy(uint256 minimumTokensOut) external payable returns (uint256 tokensOut) {
-        tokensOut = _buy(msg.sender, minimumTokensOut, false);
+    function buy(uint256 minimumTokensOut, uint256 deadline) external payable nonReentrant returns (uint256 tokensOut) {
+        tokensOut = _buy(msg.sender, minimumTokensOut, false, deadline);
     }
 
-    function sell(uint256 tokenAmount, uint256 minimumBaseOut) external returns (uint256 netBaseCredit) {
+    function sell(uint256 tokenAmount, uint256 minimumBaseOut, uint256 deadline)
+        external
+        nonReentrant
+        returns (uint256 netBaseCredit)
+    {
         _requireTrading();
+        DeadlinePolicy.enforce(deadline);
 
         uint256 userBalance = tokenBalanceOf[msg.sender];
         if (tokenAmount > userBalance) revert InsufficientTokenBalance(userBalance, tokenAmount);
 
         CurveMath.SellQuote memory curve =
             CurveMath.quoteSell(virtualBaseReserve, virtualTokenReserve, tokenAmount, realBaseReserve);
+        _enforceMinimumTrade(curve.grossBaseOut);
         FeeMath.TradeFeeQuote memory fee = FeeMath.quoteTrade(curve.grossBaseOut);
         if (fee.netAmount < minimumBaseOut) revert BaseSlippageExceeded(minimumBaseOut, fee.netAmount);
 
@@ -163,6 +175,8 @@ contract BondingCurveSimulator is ReentrancyGuard {
         claimableBaseOf[msg.sender] += fee.netAmount;
         totalClaimableBase += fee.netAmount;
 
+        emit CreatorFeeAccrued(creator, msg.sender, fee.creatorFee, false);
+        emit TreasuryFeeAccrued(treasury, msg.sender, fee.treasuryFee, false);
         emit TokensSold(msg.sender, tokenAmount, curve.grossBaseOut, fee.netAmount, fee.creatorFee, fee.treasuryFee);
 
         _assertAccounting();
@@ -186,49 +200,48 @@ contract BondingCurveSimulator is ReentrancyGuard {
     }
 
     function claimRefund() external nonReentrant returns (uint256 amount) {
-        amount = claimableRefundOf[msg.sender];
-        if (amount == 0) revert NoClaimableAmount(msg.sender);
+        return _claimRefund(msg.sender, payable(msg.sender));
+    }
 
-        claimableRefundOf[msg.sender] = 0;
-        totalOutstandingRefunds -= amount;
-        _sendEther(msg.sender, amount, keccak256("REFUND"));
-        _assertAccounting();
+    function claimRefundTo(address payable recipient) external nonReentrant returns (uint256 amount) {
+        return _claimRefund(msg.sender, recipient);
     }
 
     function claimBaseCredit() external nonReentrant returns (uint256 amount) {
-        amount = claimableBaseOf[msg.sender];
-        if (amount == 0) revert NoClaimableAmount(msg.sender);
+        return _claimBaseCredit(msg.sender, payable(msg.sender));
+    }
 
-        claimableBaseOf[msg.sender] = 0;
-        totalClaimableBase -= amount;
-        _sendEther(msg.sender, amount, keccak256("SELL_PROCEEDS"));
-        _assertAccounting();
+    function claimBaseCreditTo(address payable recipient) external nonReentrant returns (uint256 amount) {
+        return _claimBaseCredit(msg.sender, recipient);
     }
 
     function claimCreatorFees() external onlyCreator nonReentrant returns (uint256 amount) {
-        amount = creatorTradingFees;
-        if (amount == 0) revert NoClaimableAmount(msg.sender);
+        return _claimCreatorFees(payable(msg.sender));
+    }
 
-        creatorTradingFees = 0;
-        _sendEther(msg.sender, amount, keccak256("CREATOR_FEES"));
-        _assertAccounting();
+    function claimCreatorFeesTo(address payable recipient) external onlyCreator nonReentrant returns (uint256 amount) {
+        return _claimCreatorFees(recipient);
     }
 
     function claimTreasuryFees() external onlyTreasury nonReentrant returns (uint256 amount) {
-        amount = treasuryTradingFees + graduationTreasuryAllocation;
-        if (amount == 0) revert NoClaimableAmount(msg.sender);
-
-        treasuryTradingFees = 0;
-        graduationTreasuryAllocation = 0;
-        _sendEther(msg.sender, amount, keccak256("TREASURY_FEES"));
-        _assertAccounting();
+        return _claimTreasuryFees(payable(msg.sender));
     }
 
-    function _buy(address buyer, uint256 minimumTokensOut, bool isCreatorInitialBuy)
+    function claimTreasuryFeesTo(address payable recipient)
+        external
+        onlyTreasury
+        nonReentrant
+        returns (uint256 amount)
+    {
+        return _claimTreasuryFees(recipient);
+    }
+
+    function _buy(address buyer, uint256 minimumTokensOut, bool isCreatorInitialBuy, uint256 deadline)
         private
         returns (uint256 tokensOut)
     {
         _requireTrading();
+        DeadlinePolicy.enforce(deadline);
 
         uint256 grossBaseAvailable = msg.value;
 
@@ -237,7 +250,7 @@ contract BondingCurveSimulator is ReentrancyGuard {
             CurveMath.quoteBuy(virtualBaseReserve, virtualTokenReserve, curveTokenInventory, fullFee.netAmount);
 
         uint256 grossBaseUsed;
-        uint256 grossBaseRefund;
+        uint256 grossBaseRefund = 0;
         uint256 creatorFee;
         uint256 treasuryFee;
 
@@ -254,6 +267,9 @@ contract BondingCurveSimulator is ReentrancyGuard {
             treasuryFee = fullFee.treasuryFee;
             if (fullFee.netAmount != curve.netBaseUsed) revert AccountingInvariantFailed();
         }
+
+        _enforceMinimumTrade(grossBaseUsed);
+        if (!curve.completesCurve) _enforceFillableRemainder(curve);
 
         if (isCreatorInitialBuy && curve.tokensOut > BabyNoxaConstants.CREATOR_INITIAL_BUY_CAP) {
             revert CreatorInitialBuyCapExceeded(curve.tokensOut, BabyNoxaConstants.CREATOR_INITIAL_BUY_CAP);
@@ -273,6 +289,9 @@ contract BondingCurveSimulator is ReentrancyGuard {
         treasuryTradingFees += treasuryFee;
         totalGrossBaseSubmitted += grossBaseAvailable;
         totalGrossBaseExecuted += grossBaseUsed;
+
+        emit CreatorFeeAccrued(creator, buyer, creatorFee, true);
+        emit TreasuryFeeAccrued(treasury, buyer, treasuryFee, true);
 
         if (grossBaseRefund != 0) {
             claimableRefundOf[buyer] += grossBaseRefund;
@@ -318,10 +337,73 @@ contract BondingCurveSimulator is ReentrancyGuard {
         if (state != LaunchState.Trading) revert InvalidState(state, LaunchState.Trading);
     }
 
-    function _sendEther(address recipient, uint256 amount, bytes32 claimType) private {
+    function _claimRefund(address account, address payable recipient) private returns (uint256 amount) {
+        _requireRecipient(recipient);
+        amount = claimableRefundOf[account];
+        if (amount == 0) revert NoClaimableAmount(account);
+
+        claimableRefundOf[account] = 0;
+        totalOutstandingRefunds -= amount;
+        _sendEther(account, recipient, amount, keccak256("REFUND"));
+        _assertAccounting();
+    }
+
+    function _claimBaseCredit(address account, address payable recipient) private returns (uint256 amount) {
+        _requireRecipient(recipient);
+        amount = claimableBaseOf[account];
+        if (amount == 0) revert NoClaimableAmount(account);
+
+        claimableBaseOf[account] = 0;
+        totalClaimableBase -= amount;
+        _sendEther(account, recipient, amount, keccak256("SELL_PROCEEDS"));
+        _assertAccounting();
+    }
+
+    function _claimCreatorFees(address payable recipient) private returns (uint256 amount) {
+        _requireRecipient(recipient);
+        amount = creatorTradingFees;
+        if (amount == 0) revert NoClaimableAmount(msg.sender);
+
+        creatorTradingFees = 0;
+        _sendEther(msg.sender, recipient, amount, keccak256("CREATOR_FEES"));
+        _assertAccounting();
+    }
+
+    function _claimTreasuryFees(address payable recipient) private returns (uint256 amount) {
+        _requireRecipient(recipient);
+        amount = treasuryTradingFees + graduationTreasuryAllocation;
+        if (amount == 0) revert NoClaimableAmount(msg.sender);
+
+        treasuryTradingFees = 0;
+        graduationTreasuryAllocation = 0;
+        _sendEther(msg.sender, recipient, amount, keccak256("TREASURY_FEES"));
+        _assertAccounting();
+    }
+
+    function _enforceMinimumTrade(uint256 grossBaseExecuted) private pure {
+        if (grossBaseExecuted < BabyNoxaConstants.MIN_GROSS_TRADE_VALUE) {
+            revert TradeValueBelowMinimum(grossBaseExecuted, BabyNoxaConstants.MIN_GROSS_TRADE_VALUE);
+        }
+    }
+
+    function _enforceFillableRemainder(CurveMath.BuyQuote memory curve) private pure {
+        (uint256 remainingNetBase,,) = CurveMath.netBaseForExactTokensOut(
+            curve.newVirtualBaseReserve, curve.newVirtualTokenReserve, curve.remainingTokenInventory
+        );
+        uint256 remainingGrossBase = FeeMath.grossFromNet(remainingNetBase);
+        if (remainingGrossBase < BabyNoxaConstants.MIN_GROSS_TRADE_VALUE) {
+            revert UnfillableCurveRemainder(curve.remainingTokenInventory, remainingGrossBase);
+        }
+    }
+
+    function _requireRecipient(address recipient) private pure {
+        if (recipient == address(0)) revert ZeroAddress();
+    }
+
+    function _sendEther(address account, address recipient, uint256 amount, bytes32 claimType) private {
         (bool success,) = payable(recipient).call{value: amount}("");
         if (!success) revert EtherTransferFailed(recipient, amount);
-        emit EtherClaimed(recipient, amount, claimType);
+        emit EtherClaimed(account, recipient, amount, claimType);
     }
 
     function _assertAccounting() private view {

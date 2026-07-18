@@ -2,18 +2,36 @@
 .env
 .env.*
 !.env.example
+!.env.*.example
 *.pem
+*.key
 *.keystore
 keystore/
 wallets/
+secrets/
+mnemonic*
+*mnemonic*
+*private*key*
+*.secret
 
 # Foundry build, test, and deployment artifacts
 contracts/cache/
 contracts/out/
 contracts/broadcast/
+contracts/deployments/*.json
+!contracts/deployments/*.example.json
 contracts/coverage/
 contracts/flattened/
 contracts/lcov.info
+contracts/*.gas-snapshot
+contracts/gas-report.txt
+
+# If forge is run from the repo root by mistake
+/cache/
+/out/
+/broadcast/
+/deployments/*.json
+!/deployments/*.example.json
 
 # JavaScript and TypeScript dependencies/builds
 node_modules/
@@ -26,8 +44,17 @@ node_modules/
 .nuxt/
 .svelte-kit/
 dist/
+build/
 coverage/
 *.tsbuildinfo
+
+# Package-local runtime / generated data
+packages/**/uploads/
+packages/**/.storage/
+packages/**/tmp/
+packages/**/temp/
+packages/**/coverage/
+packages/**/dist/
 
 # Test and browser output
 playwright-report/
@@ -40,6 +67,8 @@ uploads/
 .storage/
 tmp/
 temp/
+*.tmp
+*.temp
 
 # Logs
 *.log
@@ -66,7 +95,13 @@ Thumbs.db
 .parcel-cache/
 .vite/
 .cache/
+.turbo/
 
-# Local implementation planning
+# Security / analysis tool output
+crytic-export/
+mythril-report.*
+slither-report.*
+
+# Local implementation planning (keep out of public remotes)
 /IMPLEMENTATION_STATUS.md
 docs/V1_DECISION_RECORD.md

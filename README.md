@@ -4,6 +4,8 @@ BabyNoxa is a token-launch lifecycle system with three major phases:
 2. Users trade against a bonding curve until its 800-million-token inventory is sold.
 3. The project graduates into a V2-style liquidity pool and its LP position is permanently burned.
 
+The Phase 11 TypeScript workspace is tested with `npm test` and type-checked with `npm run typecheck`. Its shared schema and metadata preparation packages live under `packages/`.
+
 The explanation below describes the educational/local design. Real-value deployment would require professional auditing and adult-led legal review.
 
 ## Complete system flow
@@ -69,7 +71,7 @@ Graduation is atomic under Graduation Manager V1, so no separate keeper call or 
 | Bonding curve      | Handles pre-graduation price calculations         |
 | Fee accounting     | Separates creator, treasury and reserve amounts   |
 | Graduation manager | Converts a completed curve into liquidity         |
-| Treasury vault     | Holds claimable BabyNoxa fees                     |
+| Per-curve custody  | Holds independently claimable BabyNoxa fees       |
 | Indexer            | Reads events for charts and activity              |
 | Backend            | Search, metadata, moderation and indexing         |
 | Frontend           | Creation, discovery, trading and project display  |
@@ -476,7 +478,7 @@ Treasury LP: 0%
 Creator LP:  0%
 ```
 
-The official graduation pool uses a dedicated BabyNoxa V2-compatible factory and guarded-bootstrap pair. The pair is created during token launch and remains locked until its snapshotted Graduation Manager clears unsolicited balances, verifies empty reserves and LP supply, and performs the first mint directly to the burn address. After that one-way initialization, swaps and liquidity interaction become permissionless. A public QuickSwap pair may exist as a secondary market after graduation, but it is not the official first-liquidity venue.
+The official graduation pool uses a dedicated BabyNoxa V2-compatible factory and guarded-bootstrap pair. The pair is created during token launch and remains locked until its snapshotted Graduation Manager invokes one atomic bootstrap that burns unsolicited balances, verifies empty reserves and LP supply, pulls the exact official reserves, and performs the first mint directly to the burn address. After that one-way initialization, swaps and liquidity interaction become permissionless through BabyNoxa's guarded Router02. A public QuickSwap pair may exist as a secondary market after graduation, but it is not the official first-liquidity venue.
 
 The token burn and LP-token burn are distinct:
 
@@ -635,7 +637,7 @@ Production target:              Polygon PoS mainnet, chain ID 137, after local a
 V1 AMM model:                   Uniswap V2-compatible
 Official graduation AMM:        dedicated guarded-bootstrap BabyNoxa V2 deployment
 Polygon Amoy router:            unset; deploy and verify a pinned V2-compatible stack
-Local V2 test stack:            pinned factory, Router02, and test wrapped-native deployment
+Local V2 test stack:            guarded factory, pair, Router02, and test wrapped-native deployment
 Fee custody:                    per-curve pull claims with claimTo
 Forced ETH recovery:           no sweep in V1
 Project media:                 validated external HTTPS image/GIF URL
@@ -648,4 +650,4 @@ The Solidity `ether` denomination used by the current simulator means `10^18` na
 
 QuickSwap's V2 router at `0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff` is a Polygon PoS **mainnet** (chain `137`) deployment. It has no bytecode at that address on Polygon Amoy (chain `80002`) and must not be used in the Amoy configuration.
 
-Remaining gates are implementation and release work: build the guarded pair/factory locally, harden the stateful simulator, deploy and verify on Amoy, approve Polygon mainnet's numeric POL reserve after Amoy results, complete independent security review, and only then deploy mainnet.
+Remaining gates are implementation and release work: expand invariants over factory-created multi-launch lifecycles, add complete deployment/configuration scripts, deploy and verify the lifecycle on Amoy, approve Polygon mainnet's numeric POL reserve after Amoy results, complete independent security review, and only then deploy mainnet.
