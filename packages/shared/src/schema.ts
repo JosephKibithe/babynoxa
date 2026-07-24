@@ -5,9 +5,9 @@ export interface MetadataInput {
   name: string;
   symbol: string;
   description: string;
-  image: string;
-  imageHash: Hex;
-  website: string;
+  image?: string;
+  imageHash?: Hex;
+  website?: string;
   twitter?: string;
   telegram?: string;
   discord?: string;
@@ -43,7 +43,7 @@ function httpsUrl(field: string, value: string, hosts?: readonly string[]): stri
   return parsed.toString();
 }
 
-function optionalUrl(field: string, value: string | undefined, hosts: readonly string[]): string | undefined {
+function optionalUrl(field: string, value: string | undefined, hosts?: readonly string[]): string | undefined {
   return value === undefined || value.trim() === "" ? undefined : httpsUrl(field, value, hosts);
 }
 
@@ -51,7 +51,6 @@ export function parseMetadataV1(input: MetadataInput): ProjectMetadataV1 {
   if ((input.schemaVersion ?? METADATA_SCHEMA_VERSION) !== METADATA_SCHEMA_VERSION) {
     throw new MetadataValidationError("schemaVersion", `unsupported version ${String(input.schemaVersion)}`);
   }
-  if (!/^0x[0-9a-fA-F]{64}$/.test(input.imageHash)) throw new MetadataValidationError("imageHash", "must be a 32-byte hex hash");
   const symbol = length("symbol", input.symbol, 2, 10);
   if (!/^[A-Z0-9]+$/.test(symbol)) throw new MetadataValidationError("symbol", "must contain only uppercase letters and numbers");
 
@@ -60,10 +59,19 @@ export function parseMetadataV1(input: MetadataInput): ProjectMetadataV1 {
     name: length("name", input.name, 1, 32),
     symbol,
     description: length("description", input.description, 0, 500),
-    image: httpsUrl("image", input.image),
-    imageHash: input.imageHash.toLowerCase() as Hex,
-    website: httpsUrl("website", input.website),
   };
+  const image = optionalUrl("image", input.image);
+  const website = optionalUrl("website", input.website);
+  if (image) {
+    if (!input.imageHash || !/^0x[0-9a-fA-F]{64}$/.test(input.imageHash)) {
+      throw new MetadataValidationError("imageHash", "must be a 32-byte hex hash when an image is provided");
+    }
+    metadata.image = image;
+    metadata.imageHash = input.imageHash.toLowerCase() as Hex;
+  } else if (input.imageHash !== undefined) {
+    throw new MetadataValidationError("imageHash", "cannot be provided without an image");
+  }
+  if (website) metadata.website = website;
   const twitter = optionalUrl("twitter", input.twitter, ["x.com", "twitter.com"]);
   const telegram = optionalUrl("telegram", input.telegram, ["t.me", "telegram.me"]);
   const discord = optionalUrl("discord", input.discord, ["discord.gg", "discord.com"]);

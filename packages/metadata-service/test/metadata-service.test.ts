@@ -91,3 +91,17 @@ test("prepares, stores, retrieves and hashes canonical metadata for factory crea
   assert.equal(stored, canonicalJson(prepared.metadata));
   assert.equal(sha256Hex(stored), prepared.metadataHash);
 });
+
+test("prepares canonical metadata without optional image or website", async () => {
+  let fetched = false;
+  const adapter = new MemoryStorageAdapter();
+  const service = new MetadataService(adapter, { fetch: (async () => { fetched = true; throw new Error("unexpected fetch"); }) as typeof fetch });
+  const prepared = await service.prepare({ name:"No Media", symbol:"NONE", description:"Optional links omitted" });
+  assert.equal(fetched, false);
+  assert.equal("image" in prepared.metadata, false);
+  assert.equal("imageHash" in prepared.metadata, false);
+  assert.equal("website" in prepared.metadata, false);
+  assert.equal(prepared.imageHash, undefined);
+  const stored = new TextDecoder().decode(await adapter.get(prepared.metadataUri));
+  assert.equal(stored, canonicalJson(prepared.metadata));
+});

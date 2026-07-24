@@ -1,0 +1,17 @@
+{
+  "name": "@babynoxa/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@babynoxa/metadata-service": "0.1.0",
+    "@babynoxa/shared": "0.1.0",
+    "viem": "2.55.4"
+  }
+}

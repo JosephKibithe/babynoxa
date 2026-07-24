@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity =0.8.24;
 
 /// @title BabyNoxaConstants
 /// @notice Confirmed economic constants for the BabyNoxa V1 curve model.

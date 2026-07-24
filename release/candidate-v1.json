@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "candidate": "babynoxa-v1-pre-audit",
+  "status": "not-approved-for-production",
+  "frozenOn": "2026-07-19",
+  "source": {
+    "baseCommit": "ef45bbd91dac10d57385110bbf1ad9aa508e5ee7",
+    "contractsSourceTreeSha256": "7c03bdf97aa980cfad414d521599d68633563b2373c4218d2f8cb607984a4ead",
+    "constantsFileSha256": "f435d733bd88733591ce70ae6fc831f9d07c24f885547038eb4cbd9ed6648614",
+    "packageLockSha256": "8d58fd711b06fd90925c7be07bcb6bc52c3d6c847d515e7d0a547d32eed64ebb"
+  },
+  "compiler": {
+    "babyNoxa": "0.8.24",
+    "v2Core": "0.5.16",
+    "v2Periphery": "0.6.6",
+    "optimizer": true,
+    "optimizerRuns": 999999,
+    "evmVersion": "istanbul",
+    "foundry": "1.5.1"
+  },
+  "economics": {
+    "totalSupply": "1000000000000000000000000000",
+    "curveAllocation": "800000000000000000000000000",
+    "graduationAllocation": "200000000000000000000000000",
+    "creatorInitialBuyCap": "20000000000000000000000000",
+    "tradeFeeBps": 100,
+    "graduationTreasuryBps": 1000,
+    "keeperReimbursement": "0",
+    "initialVirtualBaseReserve": "1425000000000000000",
+    "initialVirtualTokenReserve": "1066666667000000000000000000"
+  },
+  "deployedBytecodeKeccak256": {
+    "BabyNoxaToken": "0xe214b36587f7ca3869e5499f1bcfbe585dace2b83dbaf0b60c0f5deed57ba86d",
+    "BondingCurve": "0xa2ee50b816977d248c84dbc3ae33d218fb154ed7fb6a5911fb4be6e5a0c20620",
+    "BabyNoxaLaunchDeployer": "0x3e67ec2ce6c8b7a3670b032289da66add0e52bc468a279cca8514b16c59ef463",
+    "BabyNoxaFactory": "0xa923816aa45ee6f490b2ed6323135927d63035519acc01590501819750db1692",
+    "GraduationManagerV1": "0xe642cec9d38c134a44b5de5864963a2dd1058773eff02df53e6b7c6fbf3c73ff",
+    "GuardedV2Factory": "0xed355f141a20aaf2c208e1ccc2c04a123ade8d60248576d478a02486530fc31f",
+    "GuardedV2Pair": "0x98f79941055709fc034a9546389028d1eeb9e18ff9efa4206ec7d0824467a58e",
+    "GuardedV2Router02": "0x192131aad3a69d38844d76c0f336589aa761620eea0d39e5dd197905ef15aa39"
+  },
+  "externalGates": {
+    "professionalContractAudit": "pending",
+    "auditRetest": "pending",
+    "qualifiedLegalPrivacyReview": "pending",
+    "amoyRehearsal": "pending",
+    "productionApproval": "pending"
+  }
+}

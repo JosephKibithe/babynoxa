@@ -4,9 +4,11 @@ BabyNoxa is a token-launch lifecycle system with three major phases:
 2. Users trade against a bonding curve until its 800-million-token inventory is sold.
 3. The project graduates into a V2-style liquidity pool and its LP position is permanently burned.
 
-The Phase 11 TypeScript workspace is tested with `npm test` and type-checked with `npm run typecheck`. Its shared schema and metadata preparation packages live under `packages/`.
+Phases 1–13 and the local portion of Phase 14 are implemented. The TypeScript workspace is tested with `npm test` and type-checked with `npm run typecheck`; Solidity is tested from `contracts/` with Foundry. The frozen pre-audit candidate and bytecode hashes are recorded in `release/candidate-v1.json`.
 
-The explanation below describes the educational/local design. Real-value deployment would require professional auditing and adult-led legal review.
+**Release status: NOT APPROVED FOR PRODUCTION OR REAL VALUE.** Professional contract audit/retest, qualified legal/privacy review, the Polygon Amoy rehearsal and publication, fully configured remote CI, and explicit production approval remain required. See `docs/PHASE_14_RELEASE_READINESS.md`.
+
+For local startup instructions, see `docs/LOCAL_DEVELOPMENT.md`.
 
 ## Complete system flow
 
@@ -86,8 +88,8 @@ The creator submits:
 name
 symbol
 description
-image or GIF URL
-website
+image or GIF URL, optional
+website, optional
 Twitter/X
 Telegram
 Discord, optional
@@ -95,7 +97,7 @@ Discord, optional
 
 ## Image and GIF URL validation
 
-V1 accepts a remote HTTPS image or GIF URL instead of uploading media bytes to BabyNoxa storage. The backend should:
+When supplied, V1 accepts a remote HTTPS image or GIF URL instead of uploading media bytes to BabyNoxa storage. The backend should:
 
 1. Require HTTPS, reject embedded credentials, and limit the URL to 2,048 characters.
 2. Block private, loopback, link-local and reserved network targets to prevent SSRF.
@@ -116,8 +118,8 @@ Recommended limits:
 Name:         1–32 characters
 Symbol:       2–10 uppercase letters/numbers
 Description:  Maximum 500 characters
-Website:      HTTPS
-Media URL:    Required HTTPS URL
+Website:      Optional; HTTPS when supplied
+Media URL:    Optional; HTTPS when supplied
 Schema:       Versioned
 ```
 
@@ -141,7 +143,7 @@ It then calculates:
 ```text
 metadata URI
 metadata hash
-image hash
+image hash, when media is supplied
 ```
 
 The factory stores the URI and hash so a frontend can detect altered metadata.

@@ -9,9 +9,9 @@ export interface ProjectMetadataV1 {
   name: string;
   symbol: string;
   description: string;
-  image: string;
-  imageHash: Hex;
-  website: string;
+  image?: string;
+  imageHash?: Hex;
+  website?: string;
   twitter?: string;
   telegram?: string;
   discord?: string;
@@ -70,5 +70,5 @@ export interface PreparedMetadata {
   metadata: ProjectMetadataV1;
   metadataUri: string;
   metadataHash: Hex;
-  imageHash: Hex;
+  imageHash?: Hex;
 }

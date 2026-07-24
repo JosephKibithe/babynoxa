@@ -1,0 +1,36 @@
+{
+  "status": "UNAPPROVED_MAINNET_TEST",
+  "chainId": 137,
+  "network": "Polygon PoS mainnet",
+  "deploymentBlocks": {
+    "first": 90671095,
+    "last": 90671104
+  },
+  "deployer": "0x68419a9bA4A64A7958af15073c9CB32246720ee6",
+  "owner": "0x68419a9bA4A64A7958af15073c9CB32246720ee6",
+  "treasury": "0x68419a9bA4A64A7958af15073c9CB32246720ee6",
+  "babyNoxaFactory": "0x4c4C4c875B266e11c081D1C931AF509026DE6Ac2",
+  "babyNoxaLaunchDeployer": "0x8E31933E8b923B1ba723f2B3752D8fBc2cc84F50",
+  "graduationManagerV1": "0x6fE5fF1c3b01ED5bc306786B9B34Dc7A7FfdFa87",
+  "guardedV2Factory": "0x892417cCb57F9f812135a4b15B8936a173bD5C8B",
+  "guardedV2Router02": "0xdF1E08eD7116FFae250b04dCf69Ae1C7e80040A1",
+  "wrappedNative": "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270",
+  "testWrappedNative": false,
+  "managerVersion": "GraduationManagerV1",
+  "launchCountAtVerification": 0,
+  "deploymentGasUsed": "19320578",
+  "deploymentCostPol": "5.7961734",
+  "transactionHashes": [
+    "0xe2ec156c8cec7fc0660b119eb241e404c8351162bf279feb6fd7a25f75b0bcdc",
+    "0x7cc83ce8e95eb490819999fcbf5fe53287821eaa8327883934dfb31a57be1cf3",
+    "0x6cd97bf7250af4bdf69feb75e1044503f662713ccfe1ec715fd42899be115de0",
+    "0x2cdd64b4bf0669fd2bd2cffb6a42714f954a44ab47cf571a2b8e8255354d18ea",
+    "0x65ee5f3be643563d0636186736e115e15ed9ac2586b601a18995005faacf6aed"
+  ],
+  "sourceVerification": {
+    "status": "pending-explicit-publication-approval",
+    "urls": []
+  },
+  "lpPolicy": "100% of usable official-pair LP minted to 0x000000000000000000000000000000000000dEaD; V2 minimum liquidity remains locked at address(0)",
+  "warning": "This immutable public deployment has not completed the Amoy rehearsal, independent audit, legal review, or production approval gates."
+}

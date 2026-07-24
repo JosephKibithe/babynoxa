@@ -6,8 +6,8 @@ export interface PrepareMetadataInput {
   name: string;
   symbol: string;
   description: string;
-  image: string;
-  website: string;
+  image?: string;
+  website?: string;
   twitter?: string;
   telegram?: string;
   discord?: string;
@@ -21,11 +21,12 @@ export class MetadataService {
   }
 
   async prepare(input: PrepareMetadataInput): Promise<PreparedMetadata> {
-    parseMetadataV1({ ...input, imageHash: `0x${"00".repeat(32)}` });
-    const media = await fetchAndValidateMedia(input.image, this.mediaOptions);
-    const metadata = parseMetadataV1({ ...input, image: media.url, imageHash: media.hash });
+    const image = input.image?.trim();
+    parseMetadataV1({ ...input, ...(image ? { imageHash: `0x${"00".repeat(32)}` as const } : {}) });
+    const media = image ? await fetchAndValidateMedia(image, this.mediaOptions) : undefined;
+    const metadata = parseMetadataV1({ ...input, ...(media ? { image: media.url, imageHash: media.hash } : {}) });
     const bytes = new TextEncoder().encode(canonicalJson(metadata));
     const stored = await this.storage.store(bytes);
-    return { metadata, metadataUri: stored.uri, metadataHash: stored.hash, imageHash: media.hash };
+    return { metadata, metadataUri: stored.uri, metadataHash: stored.hash, ...(media ? { imageHash: media.hash } : {}) };
   }
 }

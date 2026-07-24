@@ -10,6 +10,6 @@
   },
   "dependencies": {
     "@babynoxa/shared": "0.1.0",
-    "sharp": "^0.34.0"
+    "sharp": "0.34.5"
   }
 }

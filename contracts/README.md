@@ -53,4 +53,4 @@ The deployment script creates and validates the test wrapped-native token, guard
 
 ## Deploy to Polygon Amoy
 
-The complete deployment, explorer-verification, ownership-finalization, and rollback procedures are in [`docs/PHASE_10_DEPLOYMENT.md`](../docs/PHASE_10_DEPLOYMENT.md). Amoy requires an explicitly supplied, bytecode-verified wrapped-native address. Never commit a private key or place it directly in shell history.
+The complete deployment, explorer-verification, ownership-finalization, and rollback procedures are in [`docs/PHASE_10_DEPLOYMENT.md`](../docs/PHASE_10_DEPLOYMENT.md). Amoy accepts either an explicitly supplied, bytecode-verified wrapped-native address or the explicit `DEPLOY_TEST_WRAPPED_NATIVE=true` public-testnet mode. Never use the test wrapper on mainnet, commit a private key, or place a key directly in shell history.

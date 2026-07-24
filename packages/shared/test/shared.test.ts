@@ -33,6 +33,15 @@ test("HTTPS and supported social hosts are enforced", () => {
   ]) assert.throws(() => parseMetadataV1({ ...valid, ...patch }));
 });
 
+test("image and website are optional but validated when supplied", () => {
+  const parsed = parseMetadataV1({ name:"No Links", symbol:"NONE", description:"" });
+  assert.equal("image" in parsed, false);
+  assert.equal("imageHash" in parsed, false);
+  assert.equal("website" in parsed, false);
+  assert.throws(() => parseMetadataV1({ name:"Bad Image", symbol:"BADI", description:"", image:"http://example.com/a.png", imageHash:hash }));
+  assert.throws(() => parseMetadataV1({ name:"Orphan Hash", symbol:"HASH", description:"", imageHash:hash }), /without an image/);
+});
+
 test("schema compatibility is explicit", () => {
   assert.equal(parseMetadataV1(valid).schemaVersion, 1);
   assert.throws(() => parseMetadataV1({ ...valid, schemaVersion: 2 }), /unsupported version/);

@@ -1,0 +1,19 @@
+{
+  "status": "template-not-a-deployment",
+  "chainId": 80002,
+  "network": "Polygon Amoy",
+  "deploymentBlock": null,
+  "deployer": null,
+  "owner": null,
+  "treasury": null,
+  "babyNoxaFactory": null,
+  "graduationManagerV1": null,
+  "guardedV2Factory": null,
+  "guardedV2Router02": null,
+  "wrappedNative": null,
+  "sourceVerificationUrls": [],
+  "abiArtifactCommit": null,
+  "managerVersion": "GraduationManagerV1",
+  "lpPolicy": "100% of usable official-pair LP minted to 0x000000000000000000000000000000000000dEaD; V2 minimum liquidity remains locked at address(0)",
+  "rehearsalReport": null
+}

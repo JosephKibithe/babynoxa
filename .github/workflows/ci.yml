@@ -1,0 +1,79 @@
+name: release-candidate-ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  application:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.22.0
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build --workspace @babynoxa/frontend
+      - run: npm run test:e2e --workspace @babynoxa/frontend
+
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1
+        with:
+          version: v1.5.1
+      - name: Format and build pinned candidates
+        working-directory: contracts
+        run: forge fmt --check && forge build --force
+      - name: Verify frozen source and bytecode hashes
+        run: npm run candidate:verify
+      - name: Unit, analysis, ABI, and integration tests
+        working-directory: contracts
+        run: forge test --no-match-path 'test/invariant/*' --no-match-path 'test/fork/*'
+      - name: High-depth fuzz and invariants
+        working-directory: contracts
+        run: FOUNDRY_PROFILE=phase9 forge test --match-path 'test/invariant/*'
+      - name: Adversarial regression profile
+        working-directory: contracts
+        run: FOUNDRY_PROFILE=phase9 forge test --match-path 'test/integration/Phase9Adversarial.t.sol'
+      - name: Public deployment fork gate
+        working-directory: contracts
+        env:
+          AMOY_FORK_REQUIRED: "true"
+          AMOY_RPC_URL: ${{ secrets.AMOY_RPC_URL }}
+          AMOY_FACTORY: ${{ vars.AMOY_FACTORY }}
+          AMOY_MANAGER: ${{ vars.AMOY_MANAGER }}
+          AMOY_V2_FACTORY: ${{ vars.AMOY_V2_FACTORY }}
+          AMOY_ROUTER: ${{ vars.AMOY_ROUTER }}
+          AMOY_WRAPPED_NATIVE: ${{ vars.AMOY_WRAPPED_NATIVE }}
+        run: forge test --match-path 'test/fork/*' -vv
+
+  static-analysis:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1
+        with:
+          version: v1.5.1
+      - run: pipx install slither-analyzer==0.11.3
+      - working-directory: contracts
+        run: >-
+          slither . --filter-paths 'lib|test|script|src/mocks'
+          --exclude naming-convention,solc-version,low-level-calls,arbitrary-send-eth,weak-prng,reentrancy-balance,unchecked-transfer,incorrect-equality,reentrancy-no-eth,unused-return,calls-loop,reentrancy-benign,reentrancy-events,timestamp,assembly,cyclomatic-complexity,too-many-digits,constable-states
