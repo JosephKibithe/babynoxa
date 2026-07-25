@@ -210,7 +210,7 @@ const copyHeaders = (headers: IncomingHttpHeaders): Headers => {
 
 const server = createServer(async (request, response) => {
   response.setHeader("access-control-allow-origin", "*");
-  response.setHeader("access-control-allow-headers", "content-type, authorization");
+  response.setHeader("access-control-allow-headers", "content-type, authorization, ngrok-skip-browser-warning");
   response.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
   if (request.method === "OPTIONS") {
     response.writeHead(204).end();

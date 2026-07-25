@@ -22,5 +22,19 @@
     "contracts/lib/openzeppelin-contracts/.github/workflows/*.yaml": "plaintext",
     "contracts/lib/openzeppelin-contracts/certora/**/*.sol": "plaintext",
     "contracts/lib/openzeppelin-contracts/test/**/*.sol": "plaintext"
-  }
+  },
+  "wake.compiler.solc.remappings": [
+    "@openzeppelin/contracts/=contracts/lib/openzeppelin-contracts/contracts/",
+    "@uniswap/lib/=contracts/lib/uniswap-lib/",
+    "@uniswap/v2-core/=contracts/lib/uniswap-v2-core/",
+    "@uniswap/v2-periphery/=contracts/lib/uniswap-v2-periphery/",
+    "forge-std/=contracts/lib/forge-std/src/"
+  ],
+  "solidity.remappings": [
+    "@openzeppelin/contracts/=contracts/lib/openzeppelin-contracts/contracts/",
+    "@uniswap/lib/=contracts/lib/uniswap-lib/",
+    "@uniswap/v2-core/=contracts/lib/uniswap-v2-core/",
+    "@uniswap/v2-periphery/=contracts/lib/uniswap-v2-periphery/",
+    "forge-std/=contracts/lib/forge-std/src/"
+  ]
 }

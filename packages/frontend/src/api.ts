@@ -3,7 +3,10 @@ import { API_URL } from "./config.js";
 import type { LaunchDetail, ProjectRecord, TradeRecord } from "./domain.js";
 
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
-  const response = await fetch(`${API_URL}${path}`, init);
+  const headers = new Headers(init?.headers);
+  // Bypass the ngrok free-tier browser interstitial so API calls return JSON.
+  headers.set("ngrok-skip-browser-warning", "1");
+  const response = await fetch(`${API_URL}${path}`, { ...init, headers });
   const body = await response.json() as T & { error?: string };
   if (!response.ok) throw new Error(body.error ?? `Backend request failed (${response.status})`);
   return body;

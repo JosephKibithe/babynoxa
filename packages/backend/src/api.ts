@@ -76,7 +76,7 @@ export class BackendApi {
         return json({ projects: this.withMetadata(projects) });
       }
       if (request.method === "GET" && url.pathname === "/trending") {
-        const projects = this.db.sqlite.prepare("SELECT p.*,COUNT(t.log_index) trade_count,COALESCE(SUM(CAST(t.gross_base AS INTEGER)),0) volume FROM projects p LEFT JOIN trades t ON t.chain_id=p.chain_id AND t.launch_id=p.launch_id WHERE p.chain_id=? GROUP BY p.launch_id ORDER BY volume DESC,trade_count DESC LIMIT 50").all(this.config.chainId) as Array<{ metadata_uri?: string; metadata_hash?: string }>;
+        const projects = this.db.sqlite.prepare("SELECT p.*,COUNT(t.log_index) trade_count,CAST(COALESCE(SUM(CAST(t.gross_base AS INTEGER)),0) AS TEXT) volume FROM projects p LEFT JOIN trades t ON t.chain_id=p.chain_id AND t.launch_id=p.launch_id WHERE p.chain_id=? GROUP BY p.launch_id ORDER BY volume DESC,trade_count DESC LIMIT 50").all(this.config.chainId) as Array<{ metadata_uri?: string; metadata_hash?: string }>;
         return json({ projects: this.withMetadata(projects) });
       }
       const comments = url.pathname.match(/^\/launches\/(\d+)\/comments$/);
